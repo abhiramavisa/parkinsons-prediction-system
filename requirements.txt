@@ -1,0 +1,10 @@
+flask
+gunicorn
+numpy
+pandas
+scikit-learn
+librosa
+praat-parselmouth
+scipy
+joblib
+soundfile
