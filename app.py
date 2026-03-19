@@ -1,3 +1,5 @@
+import os
+os.environ["NUMBA_DISABLE_JIT"] = "1"
 from flask import Flask, request, jsonify, render_template
 import joblib
 import os
