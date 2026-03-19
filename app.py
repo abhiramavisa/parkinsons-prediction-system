@@ -48,13 +48,19 @@ def predict():
     # Convert to proper WAV
     wav_path = os.path.join(UPLOAD_FOLDER, 'input.wav')
     try:
-        y, sr = librosa.load(original_path, sr=None, mono=True)
+        y, sr = sf.read(original_path)
+
+    # Convert stereo to mono
+        if len(y.shape) > 1:
+            y = y[:, 0]
+
         if len(y) == 0:
-            return jsonify({'error': 'Audio appears silent or unreadable'}), 400
+            return jsonify({'error': 'Audio appears empty'}), 400
+
         sf.write(wav_path, y, sr)
-        print(f"Converted to WAV: {len(y)} samples at {sr}Hz, duration={len(y)/sr:.2f}s")
+
     except Exception as e:
-        return jsonify({'error': f'Could not decode audio: {str(e)}'}), 400
+        return jsonify({'error': f'Audio decoding failed: {str(e)}'}), 400
 
     # Extract features
     try:
