@@ -1,4 +1,4 @@
-# 🧠 Parkinson’s Disease Prediction using Voice
+🧠 Parkinson’s Disease Prediction using Voice
 
 A Machine Learning web application that predicts Parkinson’s disease using voice recording analysis.
 
