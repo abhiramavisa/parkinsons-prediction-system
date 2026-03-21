@@ -2,7 +2,6 @@ from flask import Flask, request, jsonify, render_template
 import joblib
 import os
 import numpy as np
-import librosa
 import soundfile as sf
 from feature_extractor import extract_features
 
@@ -47,18 +46,25 @@ def predict():
         if os.path.getsize(original_path) == 0:
             return jsonify({'error': 'Empty audio file'}), 400
 
-        # ── Convert to WAV ─────────────────────────────────
+        # ── Convert to WAV (NO LIBROSA) ────────────────────
         wav_path = os.path.join(UPLOAD_FOLDER, 'input.wav')
 
         try:
-            y, sr = librosa.load(original_path, sr=None, mono=True)
+            data, samplerate = sf.read(original_path)
 
-            if len(y) == 0:
-                return jsonify({'error': 'Audio is silent'}), 400
+            # Convert stereo → mono
+            if len(data.shape) > 1:
+                data = data.mean(axis=1)
 
-            sf.write(wav_path, y, sr)
+            if len(data) == 0:
+                return jsonify({'error': 'Audio is empty'}), 400
+
+            sf.write(wav_path, data, samplerate)
+
+            print(f"Audio processed: {len(data)} samples @ {samplerate} Hz")
 
         except Exception as e:
+            print(f"Audio decode error: {str(e)}")
             return jsonify({'error': f'Audio decoding failed: {str(e)}'}), 400
 
         # ── Feature extraction ─────────────────────────────
@@ -67,6 +73,7 @@ def predict():
             features_scaled = scaler.transform(features)
 
         except Exception as e:
+            print(f"Feature error: {str(e)}")
             return jsonify({'error': f'Feature extraction failed: {str(e)}'}), 500
 
         # ── Prediction ─────────────────────────────────────
