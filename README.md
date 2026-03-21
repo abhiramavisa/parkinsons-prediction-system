@@ -22,8 +22,7 @@ A Machine Learning web application that predicts Parkinson’s disease using voi
 - Threshold optimized
 
 ## 🌐 Live Demo
-(Will add Render link here)
-
+https://parkinsons-app-sixw.onrender.com
 ## 📂 Project Structure
 Explain folders briefly
 
