@@ -528,30 +528,51 @@
     }
 
     // ── Analyze ──────────────────────────────────────────────
+    // ── Analyze ──────────────────────────────────────────────
     analyzeBtn.addEventListener('click', async () => {
-      if (!selectedFile) return;
+    if (!selectedFile) return;
 
-      analyzeBtn.disabled = true;
-      analyzeBtn.classList.add('loading');
-      analyzeBtn.querySelector('.btn-text').textContent = 'Analyzing...';
-      result.style.display = 'none';
+    analyzeBtn.disabled = true;
+    analyzeBtn.classList.add('loading');
+    analyzeBtn.querySelector('.btn-text').textContent = 'Analyzing...';
+    result.style.display = 'none';
 
-      const formData = new FormData();
-      formData.append('audio', selectedFile, selectedFile.name);
+    const formData = new FormData();
+    formData.append('audio', selectedFile, selectedFile.name);
 
-      try {
-        const res  = await fetch('/predict', { method: 'POST', body: formData });
-        const data = await res.json();
-        if (data.error) throw new Error(data.error);
-        showResult(data.prediction, data.label, data.confidence);
-      } catch (err) {
-        showError(err.message);
-      } finally {
-        analyzeBtn.classList.remove('loading');
-        analyzeBtn.querySelector('.btn-text').textContent = 'Analyze Voice Sample';
-        analyzeBtn.disabled = false;
+    try {
+      const res = await fetch('/predict', {
+        method: 'POST',
+        body: formData
+      });
+
+    // 🔥 FIX 1: Check if response is OK
+      if (!res.ok) {
+        const text = await res.text();  // backend might send HTML
+        throw new Error("Server error: " + text.slice(0, 100));
       }
-    });
+
+    // 🔥 FIX 2: Safe JSON parsing
+      let data;
+      try {
+        data = await res.json();
+      } catch (e) {
+        throw new Error("Invalid response from server (not JSON)");
+      }
+
+      if (data.error) throw new Error(data.error);
+
+      showResult(data.prediction, data.label, data.confidence);
+
+    } catch (err) {
+      console.error(err);
+      showError(err.message);
+    } finally {
+      analyzeBtn.classList.remove('loading');
+      analyzeBtn.querySelector('.btn-text').textContent = 'Analyze Voice Sample';
+      analyzeBtn.disabled = false;
+    }
+  });
 
     function showResult(prediction, label, confidence) {
       const isDetected = prediction === 1;

@@ -8,74 +8,89 @@ from feature_extractor import extract_features
 
 app = Flask(__name__)
 
+# ── Load model files ───────────────────────────────────────
 model     = joblib.load('model.pkl')
 scaler    = joblib.load('scaler.pkl')
 threshold = joblib.load('threshold.pkl')
 
 print(f"Model loaded. Decision threshold: {threshold:.2f}")
 
+# ── Upload folder ──────────────────────────────────────────
 UPLOAD_FOLDER = 'uploads'
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
+# ── Routes ─────────────────────────────────────────────────
 @app.route('/')
 def index():
     return render_template('index.html')
 
+
 @app.route('/predict', methods=['POST'])
 def predict():
-    if 'audio' not in request.files:
-        return jsonify({'error': 'No audio file received'}), 400
-
-    file = request.files['audio']
-    print(f"Received: filename={file.filename}, mimetype={file.mimetype}")
-
-    if file.filename == '':
-        return jsonify({'error': 'Empty filename'}), 400
-
-    # Save with original extension
-    ext           = os.path.splitext(file.filename)[-1] or '.webm'
-    original_path = os.path.join(UPLOAD_FOLDER, f'input_raw{ext}')
-    file.save(original_path)
-
-    file_size = os.path.getsize(original_path)
-    print(f"Saved file size: {file_size} bytes")
-
-    if file_size == 0:
-        return jsonify({'error': 'Received empty audio file'}), 400
-
-    # Convert to proper WAV
-    wav_path = os.path.join(UPLOAD_FOLDER, 'input.wav')
     try:
-        y, sr = librosa.load(original_path, sr=None, mono=True)
-        if len(y) == 0:
-            return jsonify({'error': 'Audio appears silent or unreadable'}), 400
-        sf.write(wav_path, y, sr)
-        print(f"Converted to WAV: {len(y)} samples at {sr}Hz, duration={len(y)/sr:.2f}s")
-    except Exception as e:
-        return jsonify({'error': f'Could not decode audio: {str(e)}'}), 400
+        # ── Check file ──────────────────────────────────────
+        if 'audio' not in request.files:
+            return jsonify({'error': 'No audio file received'}), 400
 
-    # Extract features
-    try:
-        features        = extract_features(wav_path)
-        features_scaled = scaler.transform(features)
+        file = request.files['audio']
 
-        # Use optimal threshold instead of default 0.5
-        probability  = model.predict_proba(features_scaled)[0]
-        prob_parkinsons = float(probability[1])
-        prediction   = 1 if prob_parkinsons >= threshold else 0
+        if file.filename == '':
+            return jsonify({'error': 'Empty filename'}), 400
 
-        print(f"Prob Parkinson's: {prob_parkinsons:.3f} | Threshold: {threshold:.2f} | Result: {prediction}")
+        print(f"Received: {file.filename}")
 
+        # ── Save original file ─────────────────────────────
+        ext = os.path.splitext(file.filename)[-1] or '.webm'
+        original_path = os.path.join(UPLOAD_FOLDER, f'input_raw{ext}')
+        file.save(original_path)
+
+        if os.path.getsize(original_path) == 0:
+            return jsonify({'error': 'Empty audio file'}), 400
+
+        # ── Convert to WAV ─────────────────────────────────
+        wav_path = os.path.join(UPLOAD_FOLDER, 'input.wav')
+
+        try:
+            y, sr = librosa.load(original_path, sr=None, mono=True)
+
+            if len(y) == 0:
+                return jsonify({'error': 'Audio is silent'}), 400
+
+            sf.write(wav_path, y, sr)
+
+        except Exception as e:
+            return jsonify({'error': f'Audio decoding failed: {str(e)}'}), 400
+
+        # ── Feature extraction ─────────────────────────────
+        try:
+            features = extract_features(wav_path)
+            features_scaled = scaler.transform(features)
+
+        except Exception as e:
+            return jsonify({'error': f'Feature extraction failed: {str(e)}'}), 500
+
+        # ── Prediction ─────────────────────────────────────
+        probability = model.predict_proba(features_scaled)[0][1]
+        prediction  = 1 if probability >= threshold else 0
+
+        label = "Parkinson's Detected" if prediction == 1 else "Healthy"
+        confidence = probability if prediction == 1 else (1 - probability)
+
+        print(f"Prob: {probability:.3f} | Result: {label}")
+
+        # ── FINAL RESPONSE (JSON ONLY) ─────────────────────
         return jsonify({
-            'prediction': prediction,
-            'label':      "Parkinson's Detected" if prediction == 1 else "Healthy",
-            'confidence': round(prob_parkinsons * 100 if prediction == 1 else (1 - prob_parkinsons) * 100, 1)
+            "prediction": int(prediction),
+            "label": label,
+            "confidence": round(confidence * 100, 2)
         })
 
     except Exception as e:
-        print(f"Feature extraction error: {str(e)}")
-        return jsonify({'error': f'Feature extraction failed: {str(e)}'}), 500
+        print(f"Unexpected error: {str(e)}")
+        return jsonify({'error': 'Internal server error'}), 500
 
+
+# ── Run ────────────────────────────────────────────────────
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
