@@ -3,6 +3,7 @@ import joblib
 import os
 import numpy as np
 import soundfile as sf
+from pydub import AudioSegment
 from feature_extractor import extract_features
 from werkzeug.utils import secure_filename
 
@@ -54,21 +55,17 @@ def predict():
         wav_path = os.path.join(UPLOAD_FOLDER, 'input.wav')
 
         try:
-            data, samplerate = sf.read(original_path)
+            audio = AudioSegment.from_file(original_path)
 
-            if len(data) == 0:
-                return jsonify({'error': 'Audio is empty'}), 400
+            # Convert to mono + standard sample rate
+            audio = audio.set_channels(1).set_frame_rate(22050)
 
-            # Stereo → mono
-            if len(data.shape) > 1:
-                data = np.mean(data, axis=1)
+            audio.export(wav_path, format="wav")
 
-            sf.write(wav_path, data, samplerate)
-
-            print(f"🎧 Audio processed: {len(data)} samples @ {samplerate} Hz")
+            print(f"🎧 Audio converted to WAV: {wav_path}")
 
         except Exception as e:
-            print(f"❌ Audio decode error: {str(e)}")
+            print(f"❌ Audio conversion error: {str(e)}")
             return jsonify({'error': f'Audio decoding failed: {str(e)}'}), 400
 
         # ── Feature extraction ─────────────────────────────
