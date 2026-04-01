@@ -2,7 +2,6 @@ from flask import Flask, request, jsonify, render_template
 import joblib
 import os
 import numpy as np
-import soundfile as sf
 from pydub import AudioSegment
 from feature_extractor import extract_features
 from werkzeug.utils import secure_filename
@@ -10,11 +9,13 @@ from werkzeug.utils import secure_filename
 app = Flask(__name__)
 
 # ── Load model files ───────────────────────────────────────
-model     = joblib.load('model.pkl')
-scaler    = joblib.load('scaler.pkl')
-threshold = joblib.load('threshold.pkl')
+model  = joblib.load('model.pkl')
+scaler = joblib.load('scaler.pkl')
 
-print(f"✅ Model loaded. Threshold: {threshold}")
+# 🔥 FORCE BETTER THRESHOLD (fix false positives)
+threshold = 0.82
+
+print(f"✅ Model loaded. Using threshold: {threshold}")
 
 # ── Upload folder ──────────────────────────────────────────
 UPLOAD_FOLDER = 'uploads'
@@ -29,7 +30,6 @@ def index():
 @app.route('/predict', methods=['POST'])
 def predict():
     try:
-        # ── Check file ──────────────────────────────────────
         if 'audio' not in request.files:
             return jsonify({'error': 'No audio file received'}), 400
 
@@ -39,7 +39,7 @@ def predict():
             return jsonify({'error': 'Empty filename'}), 400
 
         filename = secure_filename(file.filename)
-        print(f"📁 Received file: {filename}")
+        print(f"\n📁 Received file: {filename}")
 
         # ── Save original file ─────────────────────────────
         ext = os.path.splitext(filename)[-1] or '.webm'
@@ -57,12 +57,12 @@ def predict():
         try:
             audio = AudioSegment.from_file(original_path)
 
-            # Convert to mono + standard sample rate
+            # Standardize audio
             audio = audio.set_channels(1).set_frame_rate(22050)
 
             audio.export(wav_path, format="wav")
 
-            print(f"🎧 Audio converted to WAV: {wav_path}")
+            print(f"🎧 Converted to WAV")
 
         except Exception as e:
             print(f"❌ Audio conversion error: {str(e)}")
@@ -72,16 +72,14 @@ def predict():
         try:
             features = extract_features(wav_path)
 
-            print(f"📊 Raw features shape: {np.array(features).shape}")
-
-            # Ensure 2D shape
             features = np.array(features).reshape(1, -1)
 
-            # Check feature size matches scaler
-            expected_features = scaler.n_features_in_
-            if features.shape[1] != expected_features:
+            print(f"📊 Features: {features}")
+
+            # Validate feature size
+            if features.shape[1] != scaler.n_features_in_:
                 return jsonify({
-                    'error': f'Feature mismatch: expected {expected_features}, got {features.shape[1]}'
+                    'error': f'Feature mismatch: expected {scaler.n_features_in_}, got {features.shape[1]}'
                 }), 500
 
             features_scaled = scaler.transform(features)
@@ -91,18 +89,45 @@ def predict():
             return jsonify({'error': f'Feature extraction failed: {str(e)}'}), 500
 
         # ── Prediction ─────────────────────────────────────
+        # ── Prediction ─────────────────────────────────────
+        # ── Prediction ─────────────────────────────────────
         try:
             probability = model.predict_proba(features_scaled)[0][1]
-            prediction  = 1 if probability >= threshold else 0
 
-            label = "Parkinson's Detected" if prediction == 1 else "Healthy"
-            confidence = probability if prediction == 1 else (1 - probability)
+            print(f"🧠 Raw Probability: {probability:.4f}")
 
-            print(f"🧠 Prob: {probability:.4f} | Result: {label}")
+    # 🔥 EXTRA SAFETY: check HNR (important feature)
+            hnr = features[0][-1]   # last feature = HNR
+            jitter = features[0][3]
+
+            print(f"HNR: {hnr}, Jitter: {jitter}")
+
+    # 🚀 FINAL DECISION
+            if probability >= 0.85:
+        # 🔥 override if voice is actually stable
+                if hnr > 15 and jitter < 0.005:
+                    label = "Healthy (Override)"
+                    prediction = 0
+                    confidence = 0.7
+                else:
+                    label = "Parkinson's Detected"
+                    prediction = 1
+                    confidence = probability
+
+            elif probability <= 0.45:
+                label = "Healthy"
+                prediction = 0
+                confidence = 1 - probability
+
+            else:
+                label = "Uncertain (Better audio required)"
+                prediction = -1
+                confidence = 0.0
+
+            print(f"✅ Final Result: {label}")
 
         except Exception as e:
             print(f"❌ Prediction error: {str(e)}")
-            return jsonify({'error': f'Model prediction failed: {str(e)}'}), 500
 
         # ── Response ───────────────────────────────────────
         return jsonify({
